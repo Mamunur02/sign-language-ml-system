@@ -19,3 +19,10 @@ data/raw/
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+## Roadmap
+- Image-based baseline model (pipeline validation)
+- Hand landmark extraction using MediaPipe
+- Temporal modelling for word-level BSL recognition
+- Real-time inference and API serving
+- Monitoring and retraining lifecycle
