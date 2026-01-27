@@ -3,9 +3,30 @@ Write-Host "PROJECT SNAPSHOT (SHORT)"
 Write-Host "=============================="
 Write-Host ""
 
-# Helper: safe tree that doesn't explode
-Write-Host "---- Repository Tree (depth 3, filtered) ----"
-tree . /A | Select-String -NotMatch "\\data\\b|\\.git\\b|__pycache__|\\.venv\\b|\\bvenv\\b|node_modules|\\.pytest_cache"
+# Focused trees (avoid venv/.git explosions)
+Write-Host "---- Repository Trees (focused) ----"
+
+$roots = @("src", "data", "tools")
+$ignore = @(
+    ".git",
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    "node_modules"
+) -join " "
+
+foreach ($r in $roots) {
+    if (Test-Path $r) {
+        Write-Host ""
+        Write-Host "---- $r/ (tree, depth ~6, ignoring noisy dirs) ----"
+        tree $r /A /F /I $ignore
+    }
+}
+
+Write-Host ""
+Write-Host "---- Top-level (quick list) ----"
+Get-ChildItem -Force | Select-Object Mode, Name
 Write-Host ""
 
 Write-Host "---- Git Status ----"
