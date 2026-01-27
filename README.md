@@ -26,3 +26,5 @@ pip install -r requirements.txt
 - Temporal modelling for word-level BSL recognition
 - Real-time inference and API serving
 - Monitoring and retraining lifecycle
+
+“Day 2: Integrated ASL Alphabet dataset (image folders), verified loader + transforms, ran EDA + batch smoke test.
