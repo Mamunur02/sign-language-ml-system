@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 from PIL import Image
 from torch.utils.data import Dataset
 
+import json
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -32,6 +33,14 @@ class ImageFolderDataset(Dataset):
 
         self.transform = transform
         self.class_to_idx = self._build_class_index(self.root_dir)
+        metadata_dir = Path("data/processed/metadata")
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+
+        mapping_path = metadata_dir / "class_to_idx.json"
+        if not mapping_path.exists():
+            with open(mapping_path, "w") as f:
+                json.dump(self.class_to_idx, f, indent=2)
+
         self.samples = self._gather_samples(self.root_dir, self.class_to_idx)
 
         if len(self.samples) == 0:

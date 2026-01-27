@@ -28,3 +28,15 @@ pip install -r requirements.txt
 - Monitoring and retraining lifecycle
 
 “Day 2: Integrated ASL Alphabet dataset (image folders), verified loader + transforms, ran EDA + batch smoke test.
+
+Data Pipeline
+
+Image-folder dataset ingestion (class-per-directory)
+
+Explicit class-to-index mapping persisted to disk
+
+Deterministic train/validation split
+
+Config-driven transforms and image sizing
+
+The pipeline is designed to be dataset-agnostic, allowing later replacement of ASL image data with BSL landmark or video-based datasets without refactoring downstream code.
