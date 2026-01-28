@@ -10,7 +10,7 @@ class TrainConfig:
     processed_data_dir: Path = data_root / "processed"
 
     # Default local dataset path
-    dataset_dir: Path = Path(os.getenv("DATASET_DIR", raw_data_dir / "asl_alphabet" / "train"))
+    dataset_dir: Path = Path(os.getenv("DATASET_DIR", str(raw_data_dir / "asl_alphabet" / "train")))
 
     image_size: int = int(os.getenv("IMAGE_SIZE", 128))
     batch_size: int = int(os.getenv("BATCH_SIZE", 32))
