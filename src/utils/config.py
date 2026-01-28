@@ -10,15 +10,15 @@ class TrainConfig:
     processed_data_dir: Path = data_root / "processed"
 
     # Default local dataset path
-    dataset_dir: Path = raw_data_dir / "asl_alphabet" / "train"
+    dataset_dir: Path = Path(os.getenv("DATASET_DIR", raw_data_dir / "asl_alphabet" / "train"))
 
-    image_size: int = 128
-    batch_size: int = 32
-    num_workers: int = 2
+    image_size: int = int(os.getenv("IMAGE_SIZE", 128))
+    batch_size: int = int(os.getenv("BATCH_SIZE", 32))
+    num_workers: int = int(os.getenv("NUM_WORKERS", 2))
 
-    learning_rate: float = 1e-3
-    num_epochs: int = 5
-    seed: int = 42
+    learning_rate: float = float(os.getenv("LR", 1e-3))
+    num_epochs: int = int(os.getenv("NUM_EPOCHS", 5))
+    seed: int = int(os.getenv("SEED", 42))
 
     # Let training set this dynamically
     num_classes: int = 0
