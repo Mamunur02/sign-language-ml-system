@@ -1,32 +1,38 @@
-from __future__ import annotations
-
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
-
 @dataclass(frozen=True)
 class TrainConfig:
-    # Paths
     project_root: Path = Path(__file__).resolve().parents[2]
     data_root: Path = project_root / "data"
     raw_data_dir: Path = data_root / "raw"
     processed_data_dir: Path = data_root / "processed"
+
+    # Default local dataset path
     dataset_dir: Path = raw_data_dir / "asl_alphabet" / "train"
 
-
-    # Data / training
     image_size: int = 128
     batch_size: int = 32
     num_workers: int = 2
 
-    # Training hyperparams (used starting Day 2)
     learning_rate: float = 1e-3
     num_epochs: int = 5
     seed: int = 42
 
-    # Model
-    num_classes: int = 29  # set once dataset is chosen
+    # Let training set this dynamically
+    num_classes: int = 0
 
     def ensure_dirs(self) -> None:
         self.raw_data_dir.mkdir(parents=True, exist_ok=True)
         self.processed_data_dir.mkdir(parents=True, exist_ok=True)
+
+    def with_overrides(self) -> "TrainConfig":
+        ds = os.getenv("DATASET_DIR")
+        if ds:
+            return dataclass_replace(self, dataset_dir=Path(ds))
+        return self
+
+def dataclass_replace(cfg: TrainConfig, **kwargs):
+    from dataclasses import replace
+    return replace(cfg, **kwargs)

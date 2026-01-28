@@ -3,6 +3,10 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
+import json
+from datetime import datetime
+from dataclasses import asdict
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
@@ -166,13 +170,47 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Device:", device)
+    # ----------------------------
+    # Create run directory
+    # ----------------------------
+    run_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    run_dir = cfg.processed_data_dir / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Run directory: {run_dir}")
+
+    # Save config for reproducibility
+    with open(run_dir / "config.json", "w") as f:
+        json.dump(
+            {
+                **asdict(cfg),
+                "dataset_dir": str(cfg.dataset_dir),
+            },
+            f,
+            indent=2,
+            default=str,
+        )
+
+
+    full_ds = ImageFolderDataset(
+        cfg.dataset_dir,
+        transform=build_train_transforms(cfg.image_size),
+    )
+
+    # Update num_classes dynamically based on dataset folders
+    cfg = replace(cfg, num_classes=len(full_ds.class_to_idx))
+    cfg.ensure_dirs()
 
     train_loader, val_loader = make_loaders(cfg, val_fraction=0.1)
+
 
     model = SimpleCNN(num_classes=cfg.num_classes).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
 
-    ckpt_dir = cfg.processed_data_dir / "checkpoints"
+    # ----------------------------
+    # Checkpoint paths (per-run)
+    # ----------------------------
+    ckpt_dir = run_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     last_ckpt_path = ckpt_dir / "last.pt"
@@ -194,6 +232,22 @@ def main():
             f"train loss {train_loss:.4f} acc {train_acc:.4f} | "
             f"val loss {val_loss:.4f} acc {val_acc:.4f}"
         )
+        # ----------------------------
+        # Write metrics (append per epoch)
+        # ----------------------------
+        metrics = {
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "train_acc": train_acc,
+            "val_loss": val_loss,
+            "val_acc": val_acc,
+            "best_val_acc": best_val_acc,
+        }
+
+        metrics_path = run_dir / "metrics.jsonl"
+        with open(metrics_path, "a") as f:
+            f.write(json.dumps(metrics) + "\n")
+
 
         # Always save "last" so we can resume after interruptions
         save_checkpoint(
