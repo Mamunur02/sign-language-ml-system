@@ -9,7 +9,9 @@ from dataclasses import asdict
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
+import torch.utils.data
+
 
 from src.utils.config import TrainConfig
 from src.data.dataset import ImageFolderDataset
@@ -68,24 +70,47 @@ def try_resume(
     # next epoch to run
     return last_epoch + 1, best_val_acc
 
-def make_loaders(cfg: TrainConfig, val_fraction: float = 0.1):
-    full_ds = ImageFolderDataset(
+def make_loaders(
+    cfg: TrainConfig,
+    full_ds: ImageFolderDataset,
+    val_fraction: float = 0.1,
+    train_indices: list[int] | None = None,
+    val_indices: list[int] | None = None,
+):
+    # ----------------------------
+    # Create deterministic split if needed
+    # ----------------------------
+    if train_indices is None or val_indices is None:
+        n_val = int(len(full_ds) * val_fraction)
+        n_train = len(full_ds) - n_val
+
+        train_subset, val_subset = random_split(
+            range(len(full_ds)),
+            [n_train, n_val],
+            generator=torch.Generator().manual_seed(cfg.seed),
+        )
+
+        train_indices = list(train_subset)
+        val_indices = list(val_subset)
+
+    # ----------------------------
+    # Build separate datasets for train / val
+    # ----------------------------
+    train_ds = ImageFolderDataset(
         cfg.dataset_dir,
         transform=build_train_transforms(cfg.image_size),
     )
-
-    n_val = int(len(full_ds) * val_fraction)
-    n_train = len(full_ds) - n_val
-
-    train_ds, val_ds = random_split(
-        full_ds,
-        [n_train, n_val],
-        generator=torch.Generator().manual_seed(cfg.seed),
+    val_ds = ImageFolderDataset(
+        cfg.dataset_dir,
+        transform=build_val_transforms(cfg.image_size),
     )
 
-    # swap transforms for validation split
-    val_ds.dataset.transform = build_val_transforms(cfg.image_size)
+    train_ds = Subset(train_ds, train_indices)
+    val_ds = Subset(val_ds, val_indices)
 
+    # ----------------------------
+    # DataLoaders
+    # ----------------------------
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.batch_size,
@@ -93,6 +118,7 @@ def make_loaders(cfg: TrainConfig, val_fraction: float = 0.1):
         num_workers=cfg.num_workers,
         pin_memory=torch.cuda.is_available(),
     )
+
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.batch_size,
@@ -100,7 +126,10 @@ def make_loaders(cfg: TrainConfig, val_fraction: float = 0.1):
         num_workers=cfg.num_workers,
         pin_memory=torch.cuda.is_available(),
     )
-    return train_loader, val_loader
+
+    return train_loader, val_loader, train_indices, val_indices
+
+
 
 
 @torch.no_grad()
@@ -201,7 +230,19 @@ def main():
     cfg = replace(cfg, num_classes=len(full_ds.class_to_idx))
     cfg.ensure_dirs()
 
-    train_loader, val_loader = make_loaders(cfg, val_fraction=0.1)
+    # ----------------------------
+    # Create loaders + persist split indices
+    # ----------------------------
+    train_loader, val_loader, train_indices, val_indices = make_loaders(cfg, full_ds, val_fraction=0.1)
+
+    with open(run_dir / "train_indices.json", "w") as f:
+        json.dump(train_indices, f)
+
+    with open(run_dir / "val_indices.json", "w") as f:
+        json.dump(val_indices, f)
+
+    print(f"Saved split indices to: {run_dir}")
+
 
 
     model = SimpleCNN(num_classes=cfg.num_classes).to(device)
