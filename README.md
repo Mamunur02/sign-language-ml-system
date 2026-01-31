@@ -40,3 +40,5 @@ Deterministic train/validation split
 Config-driven transforms and image sizing
 
 The pipeline is designed to be dataset-agnostic, allowing later replacement of ASL image data with BSL landmark or video-based datasets without refactoring downstream code.
+
+“The remaining errors are concentrated among visually similar handshapes (e.g. U/V, W/V), suggesting the limitation is ambiguity in static images rather than model capacity. This motivates either top-k inference or motion-based modelling.”
