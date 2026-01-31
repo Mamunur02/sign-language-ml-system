@@ -142,6 +142,13 @@ def main():
 
     # Dataset + loader
     dataset = ImageFolderDataset(args.data_dir, transform=tfm)
+    val_idx_path = Path(args.run_dir) / "val_indices.json"
+    if val_idx_path.exists():
+        val_indices = json.loads(val_idx_path.read_text())
+        dataset = torch.utils.data.Subset(dataset, val_indices)
+        print(f"Using saved val split: n={len(val_indices)}")
+    else:
+        print("No val_indices.json found; evaluating full dataset.")
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -152,7 +159,10 @@ def main():
 
     # Class names from dataset mapping
     idx_to_class = {v: k for k, v in dataset.class_to_idx.items()}
+    base_ds = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
+    idx_to_class = {v: k for k, v in base_ds.class_to_idx.items()}
     class_names = [idx_to_class[i] for i in range(len(idx_to_class))]
+
 
     # Model
     model = SimpleCNN(num_classes=len(class_names)).to(device)
