@@ -84,7 +84,14 @@ def main():
 
     # Load checkpoint metadata
     ckpt = torch.load(ckpt_path, map_location=device)
-    num_classes = int(ckpt.get("num_classes", len(ds.class_to_idx)))
+    base_ds = getattr(ds, "dataset", ds)  # unwrap Subset if needed
+    class_to_idx = getattr(base_ds, "class_to_idx", None)
+    fallback_num_classes = len(class_to_idx) if class_to_idx is not None else None
+
+    num_classes = ckpt.get("num_classes", fallback_num_classes)
+    if num_classes is None:
+        raise ValueError("Could not infer num_classes (missing in checkpoint and dataset has no class_to_idx).")
+    num_classes = int(num_classes)
 
     model = SimpleCNN(num_classes=num_classes).to(device)
     model.load_state_dict(ckpt["model_state_dict"])
