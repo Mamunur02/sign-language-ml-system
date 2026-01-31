@@ -158,7 +158,6 @@ def main():
     )
 
     # Class names from dataset mapping
-    idx_to_class = {v: k for k, v in dataset.class_to_idx.items()}
     base_ds = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
     idx_to_class = {v: k for k, v in base_ds.class_to_idx.items()}
     class_names = [idx_to_class[i] for i in range(len(idx_to_class))]

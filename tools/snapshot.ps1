@@ -20,7 +20,7 @@ foreach ($r in $roots) {
     if (Test-Path $r) {
         Write-Host ""
         Write-Host "---- $r/ (tree, depth ~6, ignoring noisy dirs) ----"
-        tree $r /A /F /I $ignore
+        tree $r /A /F /I "$ignore"
     }
 }
 
