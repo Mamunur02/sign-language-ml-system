@@ -3,12 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from collections import Counter
 
 import numpy as np
 from PIL import Image
 
 from src.features.hand_landmarks import HandLandmarkExtractor
-
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -30,10 +30,10 @@ def iter_images(root_dir: Path, class_to_idx: dict[str, int]):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-dir", type=str, required=True, help="ImageFolder root: class subfolders")
-    parser.add_argument("--out-dir", type=str, default="artifacts/landmarks/asl_alphabet_v1")
+    parser.add_argument("--dataset-dir", type=str, required=True)
+    parser.add_argument("--out-dir", type=str, default="artifacts/landmarks/asl_alphabet_v2")
     parser.add_argument("--task-model", type=str, default="artifacts/models/hand_landmarker.task")
-    parser.add_argument("--max-per-class", type=int, default=0, help="0 = no limit")
+    parser.add_argument("--max-per-class", type=int, default=0)
     args = parser.parse_args()
 
     dataset_dir = Path(args.dataset_dir)
@@ -45,17 +45,14 @@ def main():
 
     extractor = HandLandmarkExtractor(task_model_path=args.task_model)
 
-    X = []
-    y = []
-    paths = []
+    X, y, paths = [], [], []
     skipped = 0
-
     per_class_count = {k: 0 for k in class_to_idx.keys()}
+    handedness_counter = Counter()
 
     try:
         for img_path, label in iter_images(dataset_dir, class_to_idx):
             class_name = img_path.parent.name
-
             if args.max_per_class and per_class_count[class_name] >= args.max_per_class:
                 continue
 
@@ -74,11 +71,12 @@ def main():
             y.append(label)
             paths.append(str(img_path))
             per_class_count[class_name] += 1
+            handedness_counter[feats.handedness] += 1
     finally:
         extractor.close()
 
-    X = np.stack(X, axis=0).astype(np.float32)  # (N,63)
-    y = np.array(y, dtype=np.int64)             # (N,)
+    X = np.stack(X, axis=0).astype(np.float32)
+    y = np.array(y, dtype=np.int64)
     paths = np.array(paths, dtype=object)
 
     np.savez_compressed(out_dir / "landmarks.npz", X=X, y=y, paths=paths)
@@ -90,6 +88,7 @@ def main():
         "num_classes": int(len(class_to_idx)),
         "skipped": int(skipped),
         "max_per_class": int(args.max_per_class),
+        "handedness_counts": dict(handedness_counter),
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 

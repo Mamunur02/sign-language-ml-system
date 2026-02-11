@@ -27,16 +27,28 @@ def ensure_hand_landmarker_model(model_path: Path, url: str = DEFAULT_TASK_MODEL
 
 @dataclass(frozen=True)
 class LandmarkFeatures:
-    x: np.ndarray  # shape (63,)
+    x: np.ndarray          # shape (63,)
     bbox_area: float
+    handedness: str        # "Left" or "Right" or "Unknown"
+
+
+def _rotation_matrix(theta: float) -> np.ndarray:
+    c = float(np.cos(theta))
+    s = float(np.sin(theta))
+    return np.array([[c, -s], [s, c]], dtype=np.float32)
 
 
 class HandLandmarkExtractor:
     """
-    Extracts 21 hand landmarks (x,y,z) using MediaPipe Tasks HandLandmarker.
-    Normalisation:
-      - translate so wrist is at origin
-      - scale so max distance from origin is 1 (avoids camera distance effects)
+    MediaPipe Tasks HandLandmarker -> canonicalised (handedness + rotation) landmark features.
+
+    Canonicalisation:
+      1) Choose largest hand by bbox area.
+      2) If handedness == Left, mirror x (after wrist-centering) so all hands become "Right-like".
+      3) Rotate in XY so the vector wrist -> middle_mcp points upward (+Y).
+      4) Scale so max radius is 1.
+
+    Output: 63-dim float32 vector (21 * 3).
     """
 
     def __init__(
@@ -56,18 +68,17 @@ class HandLandmarkExtractor:
         if callable(close_fn):
             close_fn()
 
-    def _select_largest_hand(self, hand_landmarks_list, w: int, h: int) -> Tuple[Optional[list], float]:
-        """
-        Returns: (hand_landmarks, bbox_area) where hand_landmarks is a list of 21 landmarks.
-        If no hands, returns (None, 0.0)
-        """
+    def _select_largest_hand(
+        self, hand_landmarks_list, handedness_list, w: int, h: int
+    ) -> Tuple[Optional[list], float, str]:
         if not hand_landmarks_list:
-            return None, 0.0
+            return None, 0.0, "Unknown"
 
-        best = None
+        best_hand = None
         best_area = -1.0
+        best_handness = "Unknown"
 
-        for hand in hand_landmarks_list:
+        for i, hand in enumerate(hand_landmarks_list):
             xs = [lm.x for lm in hand]
             ys = [lm.y for lm in hand]
             x1 = min(xs) * w
@@ -75,11 +86,18 @@ class HandLandmarkExtractor:
             y1 = min(ys) * h
             y2 = max(ys) * h
             area = max(0.0, (x2 - x1)) * max(0.0, (y2 - y1))
+
             if area > best_area:
                 best_area = area
-                best = hand
+                best_hand = hand
 
-        return best, float(best_area)
+                # handedness_list[i] is a list of categories; take the top one
+                if handedness_list and i < len(handedness_list) and handedness_list[i]:
+                    best_handness = handedness_list[i][0].category_name or "Unknown"
+                else:
+                    best_handness = "Unknown"
+
+        return best_hand, float(best_area), best_handness
 
     def extract(self, pil_img: Image.Image) -> Optional[LandmarkFeatures]:
         rgb = np.array(pil_img.convert("RGB"))
@@ -88,23 +106,40 @@ class HandLandmarkExtractor:
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self._landmarker.detect(mp_image)
 
-        hand, area = self._select_largest_hand(result.hand_landmarks, w, h)
+        hand, area, handness = self._select_largest_hand(
+            result.hand_landmarks, result.handedness, w, h
+        )
         if hand is None:
             return None
 
-        # (21,3): x,y,z in normalised coordinates (x,y in [0,1] relative to image; z relative)
-        pts = np.array([[lm.x, lm.y, lm.z] for lm in hand], dtype=np.float32)
+        pts = np.array([[lm.x, lm.y, lm.z] for lm in hand], dtype=np.float32)  # (21,3)
 
-        # Normalise: translate wrist to origin
-        wrist = pts[0:1, :]  # landmark 0 is wrist
+        # 1) wrist-centre
+        wrist = pts[0:1, :]
         pts = pts - wrist
 
-        # Scale: max distance from origin to 1 (avoid scale dependence)
+        # 2) mirror left -> right canonical
+        if handness.lower().startswith("left"):
+            pts[:, 0] = -pts[:, 0]
+
+        # 3) rotate XY so wrist->middle_mcp points up
+        # middle_mcp landmark index = 9 (standard)
+        v = pts[9, 0:2].copy()
+        norm = float(np.linalg.norm(v))
+        if norm > 1e-6:
+            # current angle of v
+            angle = float(np.arctan2(v[1], v[0]))
+            # we want v to align with +Y, i.e. angle_target = pi/2
+            theta = (np.pi / 2.0) - angle
+            R = _rotation_matrix(theta)
+            pts[:, 0:2] = (pts[:, 0:2] @ R.T)
+
+        # 4) scale by max radius
         d = np.linalg.norm(pts, axis=1)
         scale = float(np.max(d))
         if scale < 1e-6:
             return None
         pts = pts / scale
 
-        x = pts.reshape(-1)  # (63,)
-        return LandmarkFeatures(x=x, bbox_area=area)
+        x = pts.reshape(-1).astype(np.float32)  # (63,)
+        return LandmarkFeatures(x=x, bbox_area=area, handedness=handness)
