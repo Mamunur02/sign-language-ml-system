@@ -2,14 +2,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
 from PIL import Image
 
-# MediaPipe + OpenCV (OpenCV only used for array format convenience)
-import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
+
+
+DEFAULT_TASK_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
+    "hand_landmarker/float16/1/hand_landmarker.task"
+)
 
 
 @dataclass(frozen=True)
@@ -31,11 +38,11 @@ class BBox:
         )
 
 
-def _bbox_from_landmarks(
-    hand_landmarks, image_w: int, image_h: int, pad: float = 0.20
+def _bbox_from_task_landmarks(
+    hand_landmarks, image_w: int, image_h: int, pad: float
 ) -> BBox:
-    xs = [lm.x for lm in hand_landmarks.landmark]
-    ys = [lm.y for lm in hand_landmarks.landmark]
+    xs = [lm.x for lm in hand_landmarks]
+    ys = [lm.y for lm in hand_landmarks]
 
     x_min = min(xs) * image_w
     x_max = max(xs) * image_w
@@ -45,7 +52,6 @@ def _bbox_from_landmarks(
     bw = x_max - x_min
     bh = y_max - y_min
 
-    # add padding (fraction of bbox size)
     x_min -= pad * bw
     x_max += pad * bw
     y_min -= pad * bh
@@ -54,49 +60,64 @@ def _bbox_from_landmarks(
     return BBox(int(x_min), int(y_min), int(x_max), int(y_max)).clamp(image_w, image_h)
 
 
+def ensure_hand_landmarker_model(model_path: Path, url: str = DEFAULT_TASK_MODEL_URL) -> None:
+    """
+    Downloads the MediaPipe HandLandmarker task model if it does not exist.
+    Keeps the repo usable in Colab/CI without manual steps.
+    """
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    if model_path.exists():
+        return
+
+    import urllib.request
+
+    urllib.request.urlretrieve(url, str(model_path))
+
+
 class HandCropper:
     """
-    Uses MediaPipe Hands to detect hand landmarks and returns a cropped PIL image of the hand.
-    Default behaviour: if 2 hands detected, choose the largest bbox (most stable for single-hand signs).
+    MediaPipe Tasks HandLandmarker cropper.
+    If multiple hands are detected, chooses the largest bbox.
     """
 
     def __init__(
         self,
-        static_image_mode: bool = True,
-        max_num_hands: int = 2,
-        min_detection_confidence: float = 0.5,
-        min_tracking_confidence: float = 0.5,
+        task_model_path: str | Path = "artifacts/models/hand_landmarker.task",
+        num_hands: int = 2,
         pad: float = 0.20,
     ) -> None:
         self.pad = pad
-        self._mp_hands = mp.solutions.hands
-        self._hands = self._mp_hands.Hands(
-            static_image_mode=static_image_mode,
-            max_num_hands=max_num_hands,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence,
+        self.task_model_path = Path(task_model_path)
+        ensure_hand_landmarker_model(self.task_model_path)
+
+        base_options = mp_python.BaseOptions(model_asset_path=str(self.task_model_path))
+        options = mp_vision.HandLandmarkerOptions(
+            base_options=base_options,
+            num_hands=num_hands,
         )
+        self._landmarker = mp_vision.HandLandmarker.create_from_options(options)
 
     def close(self) -> None:
-        self._hands.close()
+        # landmarker has close() in newer versions; safe-guard
+        close_fn = getattr(self._landmarker, "close", None)
+        if callable(close_fn):
+            close_fn()
 
     def detect_largest_hand_bbox(self, img: Image.Image) -> Optional[BBox]:
-        # PIL -> RGB numpy -> MediaPipe expects RGB
         rgb = np.array(img.convert("RGB"))
         h, w = rgb.shape[:2]
 
-        # MediaPipe API
-        results = self._hands.process(rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = self._landmarker.detect(mp_image)
 
-        if not results.multi_hand_landmarks:
+        if not result.hand_landmarks:
             return None
 
-        # Choose largest bbox
         best_bbox: Optional[BBox] = None
         best_area = -1
 
-        for hand_lms in results.multi_hand_landmarks:
-            bbox = _bbox_from_landmarks(hand_lms, w, h, pad=self.pad)
+        for hand in result.hand_landmarks:
+            bbox = _bbox_from_task_landmarks(hand, w, h, pad=self.pad)
             area = bbox.area()
             if area > best_area:
                 best_area = area
@@ -108,5 +129,4 @@ class HandCropper:
         bbox = self.detect_largest_hand_bbox(img)
         if bbox is None:
             return None
-        cropped = img.crop((bbox.x1, bbox.y1, bbox.x2, bbox.y2))
-        return cropped
+        return img.crop((bbox.x1, bbox.y1, bbox.x2, bbox.y2))

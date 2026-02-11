@@ -1,0 +1,8 @@
+# requirements-colab.txt
+pandas
+scikit-learn
+matplotlib
+
+mediapipe==0.10.32
+opencv-python>=4.8,<5
+protobuf>=4.21,<7

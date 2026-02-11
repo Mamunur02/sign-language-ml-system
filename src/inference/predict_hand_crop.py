@@ -72,12 +72,11 @@ def predict_image_with_hand_crop(
     img = Image.open(image_path).convert("RGB")
 
     cropper = HandCropper(
-        static_image_mode=True,
-        max_num_hands=2,
-        min_detection_confidence=mp_det_conf,
-        min_tracking_confidence=0.5,
+        task_model_path=os.getenv("MP_HAND_TASK", "artifacts/models/hand_landmarker.task"),
+        num_hands=2,
         pad=mp_pad,
     )
+
 
     try:
         cropped = cropper.crop_hand(img)
